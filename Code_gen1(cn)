@@ -1,0 +1,825 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+匡威生命游戏 (Conway's Game of Life) 实现
+支持自定义规则和用户交互更新方格状态
+"""
+
+import numpy as np
+import os
+import time
+import json  # 预先导入json模块用于状态保存/加载
+
+
+class GameOfLife:
+    """
+    生命游戏类，管理游戏状态和逻辑
+    """
+    
+    def __init__(self, width=20, height=10, boundary_type='toroidal'):
+        """
+        初始化生命游戏
+        
+        参数:
+            width: 网格宽度
+            height: 网格高度
+            boundary_type: 边界类型，可选 'toroidal'(环绕) 或 'fixed'(固定)
+        """
+        self.width = width
+        self.height = height
+        # 初始化网格，0表示死亡，1表示存活
+        self.grid = np.zeros((height, width), dtype=int)
+        # 默认规则：康威生命游戏规则
+        self.rules = {
+            'birth': [3],      # 当空格子有3个存活邻居时，新细胞诞生
+            'survival': [2, 3] # 当活细胞有2或3个存活邻居时，继续存活
+        }
+        # 边界类型
+        self.boundary_type = boundary_type
+        # 统计信息
+        self.generation = 0
+        self.living_cells = 0
+        self.stats = {
+            'max_living': 0,
+            'min_living': float('inf'),
+            'total_generations': 0
+        }
+        # 游戏状态控制
+        self.paused = False
+        # 历史记录用于撤销功能
+        self.history = []
+        self.history_max_length = 100  # 最大历史记录长度
+        
+    def initialize_grid(self, pattern=None):
+        """
+        初始化网格状态
+        
+        参数:
+            pattern: 预定义的模式，默认为None（随机初始化）
+        """
+        # 重置统计信息
+        self.generation = 0
+        
+        if pattern is None:
+            # 随机初始化，约30%的细胞存活
+            self.grid = np.random.choice([0, 1], size=(self.height, self.width), p=[0.7, 0.3])
+        else:
+            # 根据预定义模式初始化
+            self.grid = np.zeros((self.height, self.width), dtype=int)
+            
+            # 滑翔机模式
+            if pattern == 'glider' and self.height >= 3 and self.width >= 3:
+                glider = np.array([[0, 1, 0],
+                                  [0, 0, 1],
+                                  [1, 1, 1]])
+                start_row = (self.height - 3) // 2
+                start_col = (self.width - 3) // 2
+                self.grid[start_row:start_row+3, start_col:start_col+3] = glider
+            
+            # 方块模式
+            elif pattern == 'block' and self.height >= 2 and self.width >= 2:
+                block = np.array([[1, 1],
+                                 [1, 1]])
+                start_row = (self.height - 2) // 2
+                start_col = (self.width - 2) // 2
+                self.grid[start_row:start_row+2, start_col:start_col+2] = block
+            
+            # 脉冲星模式
+            elif pattern == 'blinker' and self.height >= 3 and self.width >= 3:
+                blinker = np.array([[0, 1, 0],
+                                   [0, 1, 0],
+                                   [0, 1, 0]])
+                start_row = (self.height - 3) // 2
+                start_col = (self.width - 3) // 2
+                self.grid[start_row:start_row+3, start_col:start_col+3] = blinker
+            
+            # 蜂巢模式
+            elif pattern == 'beehive' and self.height >= 4 and self.width >= 5:
+                beehive = np.array([[0, 1, 1, 0],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [0, 1, 1, 0]])
+                start_row = (self.height - 4) // 2
+                start_col = (self.width - 5) // 2
+                self.grid[start_row:start_row+4, start_col:start_col+4] = beehive
+        
+        # 更新存活细胞数
+        self.living_cells = np.sum(self.grid)
+        self.stats['min_living'] = min(self.stats['min_living'], self.living_cells)
+    
+    def display_grid(self):
+        """
+        显示当前网格状态和统计信息
+        """
+        os.system('cls' if os.name == 'nt' else 'clear')  # 清屏
+        
+        # 显示统计信息
+        status = "暂停" if self.paused else "运行中"
+        print(f"代数: {self.generation} | 存活细胞: {self.living_cells} | 状态: {status}")
+        print(f"边界类型: {self.boundary_type}")
+        
+        # 显示网格
+        print("-" * (self.width + 2))  # 顶部边框
+        for row in self.grid:
+            line = '|'
+            for cell in row:
+                line += '●' if cell == 1 else ' '
+            line += '|'
+            print(line)
+        print("-" * (self.width + 2))  # 底部边框
+    
+    def count_neighbors(self, row, col):
+        """
+        计算指定位置的邻居数量
+        
+        参数:
+            row: 行索引
+            col: 列索引
+            
+        返回:
+            邻居数量
+        """
+        neighbors = 0
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                if dr == 0 and dc == 0:
+                    continue  # 跳过自身
+                
+                r = row + dr
+                c = col + dc
+                
+                # 根据边界类型处理
+                if self.boundary_type == 'toroidal':
+                    # 环绕边界：超出边界的位置从另一边进入
+                    r = r % self.height
+                    c = c % self.width
+                    neighbors += self.grid[r, c]
+                elif self.boundary_type == 'fixed':
+                    # 固定边界：超出边界的位置视为没有细胞
+                    if 0 <= r < self.height and 0 <= c < self.width:
+                        neighbors += self.grid[r, c]
+        
+        return neighbors
+    
+    def update_rules(self, birth, survival):
+        """
+        更新生命游戏规则
+        
+        参数:
+            birth: 诞生规则列表
+            survival: 生存规则列表
+        """
+        self.rules['birth'] = birth
+        self.rules['survival'] = survival
+    
+    def update_grid(self):
+        """
+        根据规则更新网格状态
+        使用性能优化的实现
+        """
+        if self.paused:
+            return self.living_cells
+        
+        # 保存当前状态到历史记录（仅当有变化时）
+        self.save_history()
+        
+        # 创建新网格以存储下一状态
+        new_grid = np.zeros((self.height, self.width), dtype=int)
+        
+        # 性能优化：使用NumPy的roll操作计算邻居数量（对于大网格更高效）
+        if self.height > 10 and self.width > 10 and self.boundary_type == 'toroidal':
+            # 使用向量化操作计算邻居数量
+            neighbors = np.zeros_like(self.grid)
+            
+            # 计算8个方向的邻居
+            for dr in [-1, 0, 1]:
+                for dc in [-1, 0, 1]:
+                    if dr == 0 and dc == 0:
+                        continue
+                    # 使用roll实现环绕边界
+                    neighbors += np.roll(np.roll(self.grid, dr, axis=0), dc, axis=1)
+            
+            # 应用规则
+            # 死细胞变活：有诞生规则中的邻居数
+            birth_mask = (self.grid == 0) & np.isin(neighbors, self.rules['birth'])
+            # 活细胞存活：有生存规则中的邻居数
+            survive_mask = (self.grid == 1) & np.isin(neighbors, self.rules['survival'])
+            
+            # 设置新状态
+            new_grid[birth_mask | survive_mask] = 1
+        else:
+            # 对于小网格或固定边界，使用原始方法
+            for row in range(self.height):
+                for col in range(self.width):
+                    neighbors = self.count_neighbors(row, col)
+                    current_state = self.grid[row, col]
+                    
+                    # 应用规则
+                    if current_state == 0:  # 死细胞
+                        if neighbors in self.rules['birth']:
+                            new_grid[row, col] = 1
+                    else:  # 活细胞
+                        if neighbors in self.rules['survival']:
+                            new_grid[row, col] = 1
+        
+        # 检查是否有变化
+        if np.array_equal(self.grid, new_grid):
+            # 网格没有变化，可以考虑暂停游戏或提示用户
+            pass
+        
+        # 更新网格
+        self.grid = new_grid
+        
+        # 更新统计信息
+        self.generation += 1
+        self.living_cells = np.sum(self.grid)
+        self.stats['max_living'] = max(self.stats['max_living'], self.living_cells)
+        self.stats['min_living'] = min(self.stats['min_living'], self.living_cells)
+        self.stats['total_generations'] = self.generation
+        
+        return self.living_cells
+    
+    def toggle_cell(self, row, col):
+        """
+        切换指定位置的细胞状态
+        
+        参数:
+            row: 行索引
+            col: 列索引
+        
+        返回:
+            bool: 操作是否成功
+        """
+        if 0 <= row < self.height and 0 <= col < self.width:
+            # 保存当前状态到历史记录
+            self.save_history()
+            self.grid[row, col] = 1 - self.grid[row, col]
+            # 更新存活细胞数
+            self.living_cells = np.sum(self.grid)
+            return True
+        return False
+    
+    def set_cell(self, row, col, value):
+        """
+        设置指定位置的细胞状态
+        
+        参数:
+            row: 行索引
+            col: 列索引
+            value: 0(死亡) 或 1(存活)
+            
+        返回:
+            bool: 操作是否成功
+        """
+        if 0 <= row < self.height and 0 <= col < self.width:
+            # 保存当前状态到历史记录
+            self.save_history()
+            self.grid[row, col] = 1 if value else 0
+            # 更新存活细胞数
+            self.living_cells = np.sum(self.grid)
+            return True
+        return False
+    
+    def toggle_region(self, start_row, start_col, end_row, end_col):
+        """
+        切换区域内所有细胞的状态
+        
+        参数:
+            start_row: 起始行
+            start_col: 起始列
+            end_row: 结束行
+            end_col: 结束列
+            
+        返回:
+            int: 成功切换的细胞数量
+        """
+        # 保存当前状态到历史记录
+        self.save_history()
+        
+        # 确保范围有效
+        start_row = max(0, min(start_row, self.height - 1))
+        start_col = max(0, min(start_col, self.width - 1))
+        end_row = max(0, min(end_row, self.height - 1))
+        end_col = max(0, min(end_col, self.width - 1))
+        
+        # 交换起始和结束以确保正确的顺序
+        if start_row > end_row:
+            start_row, end_row = end_row, start_row
+        if start_col > end_col:
+            start_col, end_col = end_col, start_col
+        
+        # 切换区域内的细胞
+        count = 0
+        for row in range(start_row, end_row + 1):
+            for col in range(start_col, end_col + 1):
+                self.grid[row, col] = 1 - self.grid[row, col]
+                count += 1
+        
+        # 更新存活细胞数
+        self.living_cells = np.sum(self.grid)
+        return count
+    
+    def clear_grid(self):
+        """
+        清空网格
+        """
+        self.save_history()
+        self.grid = np.zeros((self.height, self.width), dtype=int)
+        self.living_cells = 0
+    
+    def toggle_pause(self):
+        """
+        切换游戏暂停/恢复状态
+        
+        返回:
+            bool: 暂停状态（True为暂停）
+        """
+        self.paused = not self.paused
+        return self.paused
+    
+    def save_history(self):
+        """
+        保存当前网格状态到历史记录
+        优化：避免保存过多相似状态，减少内存使用
+        """
+        # 如果历史记录为空，直接保存
+        if not self.history:
+            self.history.append({
+                'grid': np.copy(self.grid),
+                'generation': self.generation
+            })
+            return
+        
+        # 检查是否与上一个状态相同，如果相同则不保存
+        last_state = self.history[-1]
+        if not np.array_equal(self.grid, last_state['grid']):
+            # 保存当前网格和代数的副本
+            self.history.append({
+                'grid': np.copy(self.grid),
+                'generation': self.generation
+            })
+            
+            # 保持历史记录长度
+            while len(self.history) > self.history_max_length:
+                self.history.pop(0)
+    
+    def undo(self):
+        """
+        撤销到上一个状态
+        
+        返回:
+            bool: 撤销是否成功
+        """
+        if not self.history:
+            return False
+        
+        # 恢复到上一个状态
+        prev_state = self.history.pop()
+        self.grid = prev_state['grid']
+        self.generation = prev_state['generation']
+        self.living_cells = np.sum(self.grid)
+        
+        return True
+    
+    def save_state(self, filename):
+        """
+        保存游戏状态到文件
+        
+        参数:
+            filename: 保存的文件名
+            
+        返回:
+            bool: 保存是否成功
+        """
+        try:
+            import json
+            state = {
+                'width': self.width,
+                'height': self.height,
+                'grid': self.grid.tolist(),
+                'rules': self.rules,
+                'boundary_type': self.boundary_type,
+                'generation': self.generation
+            }
+            
+            with open(filename, 'w') as f:
+                json.dump(state, f)
+            return True
+        except Exception as e:
+            print(f"保存状态失败: {str(e)}")
+            return False
+    
+    def load_state(self, filename):
+        """
+        从文件加载游戏状态
+        
+        参数:
+            filename: 加载的文件名
+            
+        返回:
+            bool: 加载是否成功
+        """
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(filename):
+                raise FileNotFoundError(f"文件不存在: {filename}")
+            
+            # 检查文件大小，避免加载过大的文件
+            file_size = os.path.getsize(filename)
+            if file_size > 10 * 1024 * 1024:  # 10MB限制
+                raise ValueError(f"文件过大 (>{file_size/1024/1024:.1f}MB)")
+            
+            with open(filename, 'r') as f:
+                state = json.load(f)
+            
+            # 验证状态文件是否有效
+            required_keys = ['width', 'height', 'grid', 'rules', 'boundary_type', 'generation']
+            for key in required_keys:
+                if key not in state:
+                    raise ValueError(f"状态文件缺少必要字段: {key}")
+            
+            # 验证网格维度是否匹配
+            grid_height = len(state['grid'])
+            grid_width = len(state['grid'][0]) if grid_height > 0 else 0
+            if grid_height != state['height'] or grid_width != state['width']:
+                raise ValueError("网格维度与状态信息不匹配")
+            
+            # 保存当前状态到历史记录
+            self.save_history()
+            
+            # 恢复状态
+            self.width = state['width']
+            self.height = state['height']
+            
+            # 确保加载的数据是有效的0/1数组
+            grid_data = np.array(state['grid'], dtype=int)
+            # 强制转换为0/1值
+            self.grid = np.clip(grid_data, 0, 1)
+            
+            self.rules = state['rules']
+            self.boundary_type = state['boundary_type']
+            self.generation = state['generation']
+            self.living_cells = np.sum(self.grid)
+            
+            # 重置统计信息
+            self.stats['total_generations'] = self.generation
+            self.stats['min_living'] = min(self.stats['min_living'], self.living_cells)
+            self.stats['max_living'] = max(self.stats['max_living'], self.living_cells)
+            
+            return True
+        except FileNotFoundError as e:
+            print(f"加载状态失败: {str(e)}")
+            return False
+        except json.JSONDecodeError:
+            print("加载状态失败: 无效的JSON格式")
+            return False
+        except Exception as e:
+            print(f"加载状态失败: {str(e)}")
+            return False
+    
+    def reset_game(self):
+        """
+        重置游戏到初始状态
+        """
+        self.save_history()
+        self.initialize_grid()
+        self.history = []  # 清空历史记录
+        self.paused = False  # 恢复游戏状态
+    
+    def run_interactive(self, interval=0.5):
+        """
+        交互式运行游戏
+        
+        参数:
+            interval: 更新间隔（秒）
+        """
+        try:
+            # 预导入必要模块
+            import sys
+            import select
+            
+            # 游戏初始状态展示
+            self.display_grid()
+            print("按 Enter 开始游戏，或输入命令")
+            
+            # 游戏主循环
+            while True:
+                self.display_grid()
+                
+                # 显示当前规则信息
+                print(f"当前规则: 诞生={self.rules['birth']}, 生存={self.rules['survival']}")
+                print("命令:")
+                print("  u - 更新规则 | t - 切换单个细胞 | a - 切换区域内细胞")
+                print("  c - 清空网格 | r - 重新随机 | p - 选择预定义模式")
+                print("  s - 设置边界类型 | + - 加快速度 | - - 减慢速度")
+                print("  space - 暂停/恢复 | z - 撤销上一步 | q - 重置游戏")
+                print("  v - 保存状态 | l - 加载状态 | Enter - 单步执行 | Ctrl+C - 退出游戏")
+                
+                # 检查是否有输入
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    try:
+                        command = sys.stdin.readline().strip().lower()
+                    except EOFError:
+                        # 处理EOF错误
+                        command = ''
+                    
+                    if command == 'u':
+                        # 更新规则
+                        rule_str = input("请输入新规则 (格式: B3/S23): ")
+                        birth, survival = parse_rules(rule_str)
+                        self.update_rules(birth, survival)
+                        print(f"规则已更新: 诞生={birth}, 生存={survival}")
+                        time.sleep(1)
+                    
+                    elif command == 't':
+                        # 切换特定位置的细胞
+                        try:
+                            row = int(input(f"请输入行号 (0-{self.height-1}): "))
+                            col = int(input(f"请输入列号 (0-{self.width-1}): "))
+                            if self.toggle_cell(row, col):
+                                print(f"位置 ({row}, {col}) 的细胞状态已切换")
+                            else:
+                                print("无效的位置")
+                            time.sleep(1)
+                        except ValueError:
+                            print("请输入有效的数字")
+                            time.sleep(1)
+                    
+                    elif command == 'a':
+                        # 切换区域内的细胞
+                        try:
+                            print("请输入区域范围:")
+                            start_row = int(input(f"起始行号 (0-{self.height-1}): "))
+                            start_col = int(input(f"起始列号 (0-{self.width-1}): "))
+                            end_row = int(input(f"结束行号 (0-{self.height-1}): "))
+                            end_col = int(input(f"结束列号 (0-{self.width-1}): "))
+                            count = self.toggle_region(start_row, start_col, end_row, end_col)
+                            print(f"已切换 {count} 个细胞的状态")
+                            time.sleep(1)
+                        except ValueError:
+                            print("请输入有效的数字")
+                            time.sleep(1)
+                    
+                    elif command == 'c':
+                        # 清空网格
+                        self.clear_grid()
+                        print("网格已清空")
+                        time.sleep(1)
+                    
+                    elif command == 'r':
+                        # 重新随机生成
+                        self.initialize_grid()
+                        print("已重新随机生成网格")
+                        time.sleep(1)
+                    
+                    elif command == 'p':
+                        # 选择预定义模式
+                        print("可用模式:")
+                        print("  g - 滑翔机 (Glider)")
+                        print("  b - 方块 (Block)")
+                        print("  l - 脉冲星 (Blinker)")
+                        print("  h - 蜂巢 (Beehive)")
+                        pattern_choice = input("请选择模式: ").lower()
+                        
+                        pattern_map = {
+                            'g': 'glider',
+                            'b': 'block',
+                            'l': 'blinker',
+                            'h': 'beehive'
+                        }
+                        
+                        if pattern_choice in pattern_map:
+                            self.initialize_grid(pattern_map[pattern_choice])
+                            print(f"已设置 {pattern_map[pattern_choice]} 模式")
+                        else:
+                            print("未知模式，已使用随机初始化")
+                            self.initialize_grid()
+                        time.sleep(1)
+                    
+                    elif command == 's':
+                        # 设置边界类型
+                        print("可用边界类型:")
+                        print("  t - 环绕边界 (Toroidal)")
+                        print("  f - 固定边界 (Fixed)")
+                        boundary_choice = input("请选择边界类型: ").lower()
+                        
+                        if boundary_choice == 't':
+                            self.boundary_type = 'toroidal'
+                            print("已设置环绕边界")
+                        elif boundary_choice == 'f':
+                            self.boundary_type = 'fixed'
+                            print("已设置固定边界")
+                        else:
+                            print("未知边界类型，保持当前设置")
+                        time.sleep(1)
+                    
+                    elif command == '+':
+                        # 加快速度
+                        interval = max(0.05, interval - 0.1)
+                        print(f"速度已增加，当前间隔: {interval:.2f}秒")
+                        time.sleep(0.5)
+                    
+                    elif command == '-':
+                        # 减慢速度
+                        interval = min(2.0, interval + 0.1)
+                        print(f"速度已减慢，当前间隔: {interval:.2f}秒")
+                        time.sleep(0.5)
+                    
+                    elif command == '':
+                        # 单步执行
+                        self.update_grid()
+                    
+                    elif command == 'space' or command == ' ':
+                        # 暂停/恢复游戏
+                        paused = self.toggle_pause()
+                        print(f"游戏已{'暂停' if paused else '恢复'}")
+                        time.sleep(0.5)
+                    
+                    elif command == 'z':
+                        # 撤销上一步
+                        if self.undo():
+                            print("已撤销上一步操作")
+                        else:
+                            print("没有可撤销的操作")
+                        time.sleep(0.5)
+                    
+                    elif command == 'q':
+                        # 重置游戏
+                        confirm = input("确定要重置游戏吗？(y/n): ").lower()
+                        if confirm == 'y':
+                            self.reset_game()
+                            print("游戏已重置")
+                        time.sleep(1)
+                    
+                    elif command == 'v':
+                        # 保存状态
+                        filename = input("请输入保存的文件名 (默认为 game_state.json): ") or "game_state.json"
+                        # 确保文件有.json扩展名
+                        if not filename.endswith('.json'):
+                            filename += '.json'
+                        
+                        # 确保目录存在
+                        dir_path = os.path.dirname(filename)
+                        if dir_path and not os.path.exists(dir_path):
+                            try:
+                                os.makedirs(dir_path)
+                            except Exception as e:
+                                print(f"创建目录失败: {str(e)}")
+                                time.sleep(1)
+                                continue
+                        
+                        if self.save_state(filename):
+                            print(f"游戏状态已保存到 {filename}")
+                        time.sleep(1)
+                    
+                    elif command == 'l':
+                        # 加载状态
+                        filename = input("请输入要加载的文件名: ")
+                        if os.path.exists(filename):
+                            if self.load_state(filename):
+                                print(f"游戏状态已从 {filename} 加载")
+                        else:
+                            print(f"文件 {filename} 不存在")
+                        time.sleep(1)
+                else:
+                    # 更新网格状态
+                    self.update_grid()
+                
+                # 短暂休眠
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            print("\n游戏已停止")
+            # 显示最终统计信息
+            print("\n=== 游戏统计信息 ===")
+            print(f"总代数: {self.stats['total_generations']}")
+            print(f"最大存活细胞数: {self.stats['max_living']}")
+            print(f"最小存活细胞数: {self.stats['min_living']}")
+            print(f"最终存活细胞数: {self.living_cells}")
+
+
+def parse_rules(rule_str):
+    """
+    解析规则字符串
+    
+    参数:
+        rule_str: 规则字符串，如 "B3/S23" 表示康威原始规则
+        
+    返回:
+        (birth_rules, survival_rules): 诞生和生存规则的元组
+    """
+    try:
+        # 规范化输入，去除空格并转为大写
+        rule_str = rule_str.strip().upper()
+        
+        # 检查是否包含 '/' 分隔符
+        if '/' not in rule_str:
+            raise ValueError("规则格式错误，缺少 '/' 分隔符")
+        
+        birth_part, survival_part = rule_str.split('/')
+        
+        # 提取诞生规则（B后面的数字）
+        birth_rules = []
+        for c in birth_part:
+            if c.isdigit():
+                birth_rules.append(int(c))
+        
+        # 提取生存规则（S后面的数字）
+        survival_rules = []
+        for c in survival_part:
+            if c.isdigit():
+                survival_rules.append(int(c))
+        
+        # 验证规则是否有效
+        if not birth_rules or not survival_rules:
+            raise ValueError("规则中缺少有效的数字")
+        
+        # 确保数字在有效范围内（1-8）
+        for num in birth_rules + survival_rules:
+            if num < 0 or num > 8:
+                raise ValueError(f"邻居数量必须在0-8之间，当前值: {num}")
+        
+        return sorted(birth_rules), sorted(survival_rules)
+    except Exception as e:
+        print(f"规则解析错误: {str(e)}")
+        print("使用默认规则 B3/S23")
+        return [3], [2, 3]
+
+
+def main():
+    """
+    主函数
+    """
+    print("=== 匡威生命游戏 ===")
+    print("支持自定义规则、实时更新方格状态和各种游戏控制功能")
+    
+    try:
+        # 创建游戏实例，添加输入验证
+        while True:
+            try:
+                width = int(input("请输入网格宽度 [默认20]: ") or "20")
+                height = int(input("请输入网格高度 [默认10]: ") or "10")
+                
+                # 验证尺寸范围
+                if width < 5 or width > 100 or height < 5 or height > 50:
+                    print("网格尺寸必须在5-100之间")
+                    continue
+                break
+            except ValueError:
+                print("请输入有效的数字")
+        
+        # 创建游戏实例
+        game = GameOfLife(width, height)
+        
+        # 输入规则
+        rule_str = input("请输入规则 [默认 B3/S23]: ") or "B3/S23"
+        birth, survival = parse_rules(rule_str)
+        game.update_rules(birth, survival)
+        print(f"当前规则: 诞生={birth}, 生存={survival}")
+        
+        # 初始化网格
+        print("\n选择初始化方式:")
+        print("  r - 随机初始化")
+        print("  g - 滑翔机模式")
+        print("  b - 方块模式")
+        print("  l - 脉冲星模式")
+        print("  h - 蜂巢模式")
+        init_choice = input("[默认: r]: ") or "r"
+        
+        pattern_map = {
+            'g': 'glider',
+            'b': 'block',
+            'l': 'blinker',
+            'h': 'beehive'
+        }
+        pattern = pattern_map.get(init_choice.lower())
+        
+        game.initialize_grid(pattern)
+        
+        # 显示初始帮助信息
+        print("\n游戏控制指南:")
+        print("- 空格键: 暂停/恢复游戏")
+        print("- 回车键: 单步执行")
+        print("- z: 撤销上一步操作")
+        print("- v/l: 保存/加载游戏状态")
+        print("- Ctrl+C: 退出游戏")
+        
+        # 运行游戏
+        game.display_grid()
+        print("游戏即将开始...")
+        time.sleep(2)
+        game.run_interactive()
+        
+    except KeyboardInterrupt:
+        print("\n游戏已退出")
+    except Exception as e:
+        print(f"游戏发生错误: {str(e)}")
+        # 提供更详细的错误信息用于调试
+        import traceback
+        print("\n详细错误信息:")
+        traceback.print_exc()
+    finally:
+        print("感谢使用匡威生命游戏！")
+
+
+if __name__ == "__main__":
+    main()
