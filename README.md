@@ -42,4 +42,36 @@ explanation
   - `space` to pause/resume.  
   - `+/-` to adjust speed.  
   - `z` to undo changes.  
-  - `Ctrl+C` to exit.  
+  - `Ctrl+C` to exit.
+ 
+# Conway's Game of Life: Code Structure & Dependencies  
+
+## 1. Dependencies (Imported Tools)  
+The code uses a few key Python libraries to work:  
+- **`numpy`**: Handles the grid (2D array) for fast cell calculations (e.g., counting neighbors, updating states).  
+- **`os`**: Clears the screen (works on Windows/macOS/Linux) to refresh the grid display.  
+- **`time`**: Controls simulation speed (adds delays between generations).  
+- **`json`**: Saves/loads game states (so you can pause and resume later).  
+- **`sys`/`select`**: Lets users type commands without stopping the simulation.  
+
+## 2. Code Structure  
+The code is organized around a **`GameOfLife` class** (all core logic lives here) plus helper functions:  
+
+### a. The `GameOfLife` Class  
+This is the main "container" for the game. It has:  
+- **Initialization (`__init__`)**: Sets up the grid, rules, and stats (e.g., how many cells are alive).  
+- **Grid Setup (`initialize_grid`)**: Starts the grid with random cells or predefined patterns (like gliders).  
+- **Display (`display_grid`)**: Shows the grid on screen with stats (generation, live cells).  
+- **Rule Application (`update_grid`)**: Updates the grid for the next generation (kills/saves cells based on neighbor counts).  
+- **User Controls**: Methods to edit cells (toggle single cells/regions), save/load states, undo actions, and pause the game.  
+
+### b. Helper Functions  
+- **`parse_rules`**: Turns rule strings (like "B3/S23") into usable instructions for the game.  
+- **`main`**: The entry point—asks users for grid size/rules, then starts the simulation.  
+
+### c. Simulation Loop  
+The `run_interactive` method keeps the game going:  
+- Updates the grid automatically (unless paused).  
+- Listens for user commands (e.g., "space" to pause, "+" to speed up).  
+
+In short: The class manages the game state and rules, while helper functions handle setup/input. Dependencies make grid math fast and user interaction smooth.
