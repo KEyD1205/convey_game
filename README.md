@@ -76,85 +76,58 @@ The `run_interactive` method keeps the game going:
 
 In short: The class manages the game state and rules, while helper functions handle setup/input. Dependencies make grid math fast and user interaction smooth.
 
-Start
-  │
-  ▼
-Print welcome message
-  │
-  ▼
-Prompt user for grid width & height (with validation: 5–100 / 5–50)
-  │
-  ▼
-Create GameOfLife instance with given dimensions
-  │
-  ▼
-Prompt user for rule string (e.g., "B3/S23")
-  │
-  ▼
-Parse rule → extract birth & survival neighbor counts
-  │
-  ▼
-Update game rules accordingly
-  │
-  ▼
-Prompt user to choose initial pattern:
-   - 'r': random
-   - 'g': glider
-   - 'b': block
-   - 'l': blinker
-   - 'h': beehive
-  │
-  ▼
-Initialize grid based on selected pattern
-  │
-  ▼
-Display initial grid and control instructions
-  │
-  ▼
-Enter interactive main loop (run_interactive)
-  │
-  ├───────────────────────────────────────┐
-  ▼                                       │
-Display current grid + stats + commands   │
-  │                                       │
-  ▼                                       │
-Wait for user input OR auto-update grid   │
-  │                                       │
-  ├─ If input received:                   │
-  │     Parse command:                    │
-  │       • 'u' → update rules            │
-  │       • 't' → toggle single cell      │
-  │       • 'a' → toggle region           │
-  │       • 'c' → clear grid              │
-  │       • 'r' → re-randomize            │
-  │       • 'p' → pick preset pattern     │
-  │       • 's' → set boundary type       │
-  │       • '+'/'-' → adjust speed        │
-  │       • ' ' → pause/resume            │
-  │       • 'z' → undo                    │
-  │       • 'q' → reset game              │
-  │       • 'v' → save state              │
-  │       • 'l' → load state              │
-  │       • Enter → step once             │
-  │                                       │
-  ├─ Else (no input):                     │
-  │     Automatically call update_grid()  │
-  │                                       │
-  ▼                                       │
-Sleep for current interval (e.g., 0.5s)   │
-  │                                       │
-  └───────────────────────────────────────┘
-  │
-  ▼
-(Loop continues until Ctrl+C or exit)
-  │
-  ▼
-Catch KeyboardInterrupt
-  │
-  ▼
-Print final statistics:
-   - Total generations
-   - Max/min/final living cells
-  │
-  ▼
-End program
+flowchart TD
+    A[Start] --> B[Print welcome message]
+    B --> C[Prompt for grid width & height\n(Validate: 5–100 × 5–50)]
+    C --> D[Create GameOfLife instance]
+    D --> E[Prompt for rule string\n(e.g., 'B3/S23')]
+    E --> F[Parse rules → birth & survival lists]
+    F --> G[Update game rules]
+    G --> H[Choose initial pattern:\n r=random, g=glider, b=block,\n l=blinker, h=beehive]
+    H --> I[Initialize grid with pattern]
+    I --> J[Display grid + control instructions]
+    J --> K{Enter interactive loop}
+    
+    K --> L[Render current grid,\nstats, and command menu]
+    L --> M{User input?}
+    
+    M -- Yes --> N[Parse command]
+    N --> O1['u': update rules]
+    N --> O2['t': toggle single cell]
+    N --> O3['a': toggle region]
+    N --> O4['c': clear grid]
+    N --> O5['r': re-randomize]
+    N --> O6['p': select preset pattern]
+    N --> O7['s': set boundary type]
+    N --> O8['+/-': adjust speed]
+    N --> O9['space': pause/resume]
+    N --> O10['z': undo]
+    N --> O11['q': reset game]
+    N --> O12['v': save state]
+    N --> O13['l': load state]
+    N --> O14['Enter': step once]
+    
+    M -- No --> P[Auto-update grid via update_grid()]
+    
+    O1 --> Q
+    O2 --> Q
+    O3 --> Q
+    O4 --> Q
+    O5 --> Q
+    O6 --> Q
+    O7 --> Q
+    O8 --> Q
+    O9 --> Q
+    O10 --> Q
+    O11 --> Q
+    O12 --> Q
+    O13 --> Q
+    O14 --> Q
+    P --> Q
+    
+    Q --> R[Sleep for current interval\n(e.g., 0.5s)]
+    R --> K
+    
+    K --> S{Ctrl+C or exit?}
+    S -- Yes --> T[Print final stats:\n- Total generations\n- Max/min/final living cells]
+    T --> U[End program]
