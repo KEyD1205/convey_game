@@ -75,3 +75,86 @@ The `run_interactive` method keeps the game going:
 - Listens for user commands (e.g., "space" to pause, "+" to speed up).  
 
 In short: The class manages the game state and rules, while helper functions handle setup/input. Dependencies make grid math fast and user interaction smooth.
+
+Start
+  │
+  ▼
+Print welcome message
+  │
+  ▼
+Prompt user for grid width & height (with validation: 5–100 / 5–50)
+  │
+  ▼
+Create GameOfLife instance with given dimensions
+  │
+  ▼
+Prompt user for rule string (e.g., "B3/S23")
+  │
+  ▼
+Parse rule → extract birth & survival neighbor counts
+  │
+  ▼
+Update game rules accordingly
+  │
+  ▼
+Prompt user to choose initial pattern:
+   - 'r': random
+   - 'g': glider
+   - 'b': block
+   - 'l': blinker
+   - 'h': beehive
+  │
+  ▼
+Initialize grid based on selected pattern
+  │
+  ▼
+Display initial grid and control instructions
+  │
+  ▼
+Enter interactive main loop (run_interactive)
+  │
+  ├───────────────────────────────────────┐
+  ▼                                       │
+Display current grid + stats + commands   │
+  │                                       │
+  ▼                                       │
+Wait for user input OR auto-update grid   │
+  │                                       │
+  ├─ If input received:                   │
+  │     Parse command:                    │
+  │       • 'u' → update rules            │
+  │       • 't' → toggle single cell      │
+  │       • 'a' → toggle region           │
+  │       • 'c' → clear grid              │
+  │       • 'r' → re-randomize            │
+  │       • 'p' → pick preset pattern     │
+  │       • 's' → set boundary type       │
+  │       • '+'/'-' → adjust speed        │
+  │       • ' ' → pause/resume            │
+  │       • 'z' → undo                    │
+  │       • 'q' → reset game              │
+  │       • 'v' → save state              │
+  │       • 'l' → load state              │
+  │       • Enter → step once             │
+  │                                       │
+  ├─ Else (no input):                     │
+  │     Automatically call update_grid()  │
+  │                                       │
+  ▼                                       │
+Sleep for current interval (e.g., 0.5s)   │
+  │                                       │
+  └───────────────────────────────────────┘
+  │
+  ▼
+(Loop continues until Ctrl+C or exit)
+  │
+  ▼
+Catch KeyboardInterrupt
+  │
+  ▼
+Print final statistics:
+   - Total generations
+   - Max/min/final living cells
+  │
+  ▼
+End program
