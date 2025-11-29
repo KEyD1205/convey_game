@@ -131,3 +131,94 @@ flowchart TD
     K --> S{Ctrl+C or exit?}
     S -- Yes --> T[Print final stats:\n- Total generations\n- Max/min/final living cells]
     T --> U[End program]
+
+Start
+  │
+  ▼
+Print welcome message
+  │
+  ▼
+Prompt user for grid width & height
+  │
+  ▼
+Validate input (5 ≤ width ≤ 100, 5 ≤ height ≤ 50)
+  │
+  ▼
+Create GameOfLife instance
+  │
+  ▼
+Prompt user for rule string (e.g., "B3/S23")
+  │
+  ▼
+Parse rules → [birth], [survival]
+  │
+  ▼
+Update game rules
+  │
+  ▼
+Prompt user for initialization mode:
+   - Random ('r')
+   - Glider ('g')
+   - Block ('b')
+   - Blinker ('l')
+   - Beehive ('h')
+  │
+  ▼
+Initialize grid based on choice
+  │
+  ▼
+Display initial grid & controls guide
+  │
+  ▼
+Enter main interactive loop
+  │
+  ▼
+Display current grid & stats
+  │
+  ▼
+Show available commands
+  │
+  ▼
+Wait for user input OR auto-update if running
+  │
+  ├───────────────┐
+  │               ▼
+  │        Is input available?
+  │               │
+  │           Yes │ No
+  │               ▼
+  │        Read command ────► Update grid automatically (if not paused)
+  │               │
+  │               ▼
+  │        Process command:
+  │         • 'u': update rules
+  │         • 't': toggle single cell
+  │         • 'a': toggle region
+  │         • 'c': clear grid
+  │         • 'r': re-randomize
+  │         • 'p': choose pattern
+  │         • 's': set boundary type
+  │         • '+', '-': adjust speed
+  │         • ' ': toggle pause
+  │         • 'z': undo
+  │         • 'q': reset game
+  │         • 'v': save state
+  │         • 'l': load state
+  │         • Enter: single step
+  │         • Ctrl+C: exit
+  │
+  │               ▼
+  │        Execute corresponding action
+  │               │
+  │               ▼
+  └───────◄ Update display & stats
+                  │
+                  ▼
+           Is "Ctrl+C" or exit requested?
+                  │
+                No │ Yes
+                  ▼
+             Continue loop ────────► Show final stats & Exit
+                                          │
+                                          ▼
+                                        End
