@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Conway's Game of Life Visualization
+Interactive interface using pygame
+"""
+
+import numpy as np
+import pygame
+import sys
+import os
+import time
+
+# 确保中文显示正常
+pygame.init()
+
+class GameOfLifeGUI:
+    """
+    生命游戏可视化界面类
+    """
+    
+    def __init__(self, width=40, height=30, cell_size=20):
+        """
+        初始化生命游戏可视化界面
+        
+        参数:
+            width: 网格宽度
+            height: 网格高度
+            cell_size: 单元格大小（像素）
+        """
+        # 网格设置
+        self.width = width
+        self.height = height
+        self.cell_size = cell_size
+        
+        # 计算窗口大小
+        self.window_width = width * cell_size
+        self.window_height = height * cell_size + 100  # 额外空间用于控制按钮
+        
+        # 创建窗口
+        self.screen = pygame.display.set_mode((self.window_width, self.window_height))
+        pygame.display.set_caption("Conway's Game of Life")
+        
+        # 设置字体
+        try:
+            self.font = pygame.font.SysFont(["SimHei", "WenQuanYi Micro Hei", "Heiti TC"], 24)
+            self.small_font = pygame.font.SysFont(["SimHei", "WenQuanYi Micro Hei", "Heiti TC"], 16)
+        except:
+            self.font = pygame.font.SysFont(None, 24)
+            self.small_font = pygame.font.SysFont(None, 16)
+        
+        # 颜色定义
+        self.WHITE = (255, 255, 255)
+        self.BLACK = (0, 0, 0)
+        self.GRAY = (200, 200, 200)
+        self.GREEN = (0, 255, 0)
+        self.RED = (255, 0, 0)
+        self.BLUE = (0, 0, 255)
+        self.LIGHT_BLUE = (173, 216, 230)
+        
+        # 游戏状态
+        self.grid = np.zeros((height, width), dtype=int)
+        self.running = False
+        self.generation = 0
+        self.living_cells = 0
+        self.update_interval = 100  # 更新间隔（毫秒）
+        self.last_update_time = 0
+        
+        # 边界类型
+        self.boundary_type = 'toroidal'  # 'toroidal' 或 'fixed'
+        
+        # 游戏规则
+        self.rules = {
+            'birth': [3],      # 当空格子有3个存活邻居时，新细胞诞生
+            'survival': [2, 3] # 当活细胞有2或3个存活邻居时，继续存活
+        }
+        
+        # 鼠标状态
+        self.dragging = False
+        self.last_cell_pos = None
+        self.draw_mode = 1  # 1=绘制活细胞, 0=清除细胞
+        
+        # 按钮区域
+        self.buttons = {
+            'start_stop': pygame.Rect(10, self.height * cell_size + 10, 120, 40),
+            'clear': pygame.Rect(140, self.height * cell_size + 10, 100, 40),
+            'random': pygame.Rect(250, self.height * cell_size + 10, 100, 40),
+        }
+        
+        # 初始化网格
+        self.initialize_grid()
+    
+    def initialize_grid(self, pattern=None):
+        """
+        初始化网格
+        
+        参数:
+            pattern: 预定义模式（可选）
+        """
+        if pattern is None:
+            # 初始化为空网格
+            self.grid = np.zeros((self.height, self.width), dtype=int)
+        elif pattern == 'random':
+            # 随机初始化
+            self.grid = np.random.choice([0, 1], size=(self.height, self.width), p=[0.7, 0.3])
+        
+        # 更新统计信息
+        self.generation = 0
+        self.living_cells = np.sum(self.grid)
+    
+    def count_neighbors(self, row, col):
+        """
+        计算邻居数量
+        """
+        neighbors = 0
+        for dr in [-1, 0, 1]:
+            for dc in [-1, 0, 1]:
+                if dr == 0 and dc == 0:
+                    continue
+                
+                r = row + dr
+                c = col + dc
+                
+                if self.boundary_type == 'toroidal':
+                    r = r % self.height
+                    c = c % self.width
+                    neighbors += self.grid[r, c]
+                elif self.boundary_type == 'fixed':
+                    if 0 <= r < self.height and 0 <= c < self.width:
+                        neighbors += self.grid[r, c]
+        
+        return neighbors
+    
+    def update_grid(self):
+        """
+        更新网格状态
+        """
+        new_grid = np.zeros((self.height, self.width), dtype=int)
+        
+        # 性能优化：大网格使用向量化操作
+        if self.height > 10 and self.width > 10 and self.boundary_type == 'toroidal':
+            neighbors = np.zeros_like(self.grid)
+            
+            for dr in [-1, 0, 1]:
+                for dc in [-1, 0, 1]:
+                    if dr == 0 and dc == 0:
+                        continue
+                    neighbors += np.roll(np.roll(self.grid, dr, axis=0), dc, axis=1)
+            
+            birth_mask = (self.grid == 0) & np.isin(neighbors, self.rules['birth'])
+            survive_mask = (self.grid == 1) & np.isin(neighbors, self.rules['survival'])
+            
+            new_grid[birth_mask | survive_mask] = 1
+        else:
+            # 小网格使用原始方法
+            for row in range(self.height):
+                for col in range(self.width):
+                    neighbors = self.count_neighbors(row, col)
+                    current = self.grid[row, col]
+                    
+                    if current == 0:
+                        if neighbors in self.rules['birth']:
+                            new_grid[row, col] = 1
+                    else:
+                        if neighbors in self.rules['survival']:
+                            new_grid[row, col] = 1
+        
+        self.grid = new_grid
+        self.generation += 1
+        self.living_cells = np.sum(self.grid)
+    
+    def toggle_cell(self, row, col):
+        """
+        切换单个细胞状态
+        """
+        if 0 <= row < self.height and 0 <= col < self.width:
+            self.grid[row, col] = 1 - self.grid[row, col]
+            self.living_cells = np.sum(self.grid)
+    
+    def set_cell(self, row, col, value):
+        """
+        设置细胞状态
+        """
+        if 0 <= row < self.height and 0 <= col < self.width:
+            self.grid[row, col] = value
+            self.living_cells = np.sum(self.grid)
+    
+    def draw_grid(self):
+        """
+        绘制网格
+        """
+        # 清空屏幕
+        self.screen.fill(self.WHITE)
+        
+        # 绘制网格线和细胞
+        for row in range(self.height):
+            for col in range(self.width):
+                rect = pygame.Rect(col * self.cell_size, row * self.cell_size, 
+                                  self.cell_size, self.cell_size)
+                
+                # 绘制细胞
+                if self.grid[row, col] == 1:
+                    pygame.draw.rect(self.screen, self.GREEN, rect)
+                
+                # 绘制网格线
+                pygame.draw.rect(self.screen, self.GRAY, rect, 1)
+        
+        # 绘制按钮
+        self.draw_buttons()
+        
+        # 绘制统计信息
+        self.draw_stats()
+        
+        # 更新显示
+        pygame.display.flip()
+    
+    def draw_buttons(self):
+        """
+        绘制控制按钮
+        """
+        # Start/Stop button
+        start_stop_text = "Stop" if self.running else "Start"
+        color = self.RED if self.running else self.GREEN
+        pygame.draw.rect(self.screen, color, self.buttons['start_stop'])
+        text = self.font.render(start_stop_text, True, self.WHITE)
+        text_rect = text.get_rect(center=self.buttons['start_stop'].center)
+        self.screen.blit(text, text_rect)
+        
+        # Clear button
+        pygame.draw.rect(self.screen, self.GRAY, self.buttons['clear'])
+        text = self.font.render("Clear", True, self.BLACK)
+        text_rect = text.get_rect(center=self.buttons['clear'].center)
+        self.screen.blit(text, text_rect)
+        
+        # Random button
+        pygame.draw.rect(self.screen, self.GRAY, self.buttons['random'])
+        text = self.font.render("Random", True, self.BLACK)
+        text_rect = text.get_rect(center=self.buttons['random'].center)
+        self.screen.blit(text, text_rect)
+        
+
+    
+    def draw_stats(self):
+        """
+        Draw statistics
+        """
+        stats_text = f"Generation: {self.generation} | Living cells: {self.living_cells}"
+        text = self.small_font.render(stats_text, True, self.BLACK)
+        self.screen.blit(text, (10, self.height * self.cell_size + 60))
+        
+        # Hint text
+        hint_text = "Hint: Click or drag mouse to draw/erase cells"
+        hint = self.small_font.render(hint_text, True, self.BLACK)
+        self.screen.blit(hint, (250, self.height * self.cell_size + 60))
+    
+    def handle_events(self):
+        """
+        处理用户输入事件
+        """
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            
+            # 鼠标点击
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                self.handle_mouse_down(event.pos)
+            
+            # 鼠标释放
+            elif event.type == pygame.MOUSEBUTTONUP:
+                self.handle_mouse_up()
+            
+            # 鼠标移动
+            elif event.type == pygame.MOUSEMOTION:
+                self.handle_mouse_move(event.pos)
+            
+            # 键盘事件
+            elif event.type == pygame.KEYDOWN:
+                self.handle_keyboard(event.key)
+    
+    def handle_mouse_down(self, pos):
+        """
+        处理鼠标按下事件
+        """
+        x, y = pos
+        
+        # 检查是否点击了按钮
+        if y > self.height * self.cell_size:
+            self.handle_button_click(pos)
+        else:
+            # 开始拖动绘制
+            self.dragging = True
+            row, col = y // self.cell_size, x // self.cell_size
+            
+            # 设置绘制模式（根据点击位置的细胞状态）
+            self.draw_mode = 1 - self.grid[row, col]
+            self.set_cell(row, col, self.draw_mode)
+            self.last_cell_pos = (row, col)
+    
+    def handle_mouse_up(self):
+        """
+        处理鼠标释放事件
+        """
+        self.dragging = False
+        self.last_cell_pos = None
+    
+    def handle_mouse_move(self, pos):
+        """
+        处理鼠标移动事件
+        """
+        if not self.dragging:
+            return
+        
+        x, y = pos
+        if y > self.height * self.cell_size:
+            return
+        
+        row, col = y // self.cell_size, x // self.cell_size
+        
+        # 避免重复设置同一个单元格
+        if self.last_cell_pos != (row, col):
+            self.set_cell(row, col, self.draw_mode)
+            self.last_cell_pos = (row, col)
+    
+    def handle_button_click(self, pos):
+        """
+        处理按钮点击
+        """
+        x, y = pos
+        
+        if self.buttons['start_stop'].collidepoint(x, y):
+            self.running = not self.running
+        
+        elif self.buttons['clear'].collidepoint(x, y):
+            self.initialize_grid()
+        
+        elif self.buttons['random'].collidepoint(x, y):
+            self.initialize_grid('random')
+        
+
+    
+    def handle_keyboard(self, key):
+        """
+        处理键盘事件
+        """
+        if key == pygame.K_SPACE:
+            # 空格键开始/停止
+            self.running = not self.running
+        
+        elif key == pygame.K_c:
+            # C键清空网格
+            self.initialize_grid()
+        
+        elif key == pygame.K_r:
+            # R键随机生成
+            self.initialize_grid('random')
+        
+        elif key == pygame.K_ESCAPE:
+            # ESC键退出
+            pygame.quit()
+            sys.exit()
+        
+        elif key == pygame.K_UP:
+            # 上箭头加快速度
+            self.update_interval = max(10, self.update_interval - 10)
+        
+        elif key == pygame.K_DOWN:
+            # 下箭头减慢速度
+            self.update_interval += 10
+    
+
+    
+
+    
+    def run(self):
+        """
+        Run the game main loop
+        """
+        clock = pygame.time.Clock()
+        
+        while True:
+            self.handle_events()
+            
+            # Update game state
+            current_time = pygame.time.get_ticks()
+            if self.running and current_time - self.last_update_time > self.update_interval:
+                self.update_grid()
+                self.last_update_time = current_time
+            
+            # Draw interface
+            self.draw_grid()
+            
+            # Control frame rate
+            clock.tick(60)
+
+# 主函数
+def main():
+    """
+    Main function
+    """
+    print("=== Conway's Game of Life (Visualization Version) ===")
+    print("Instructions:")
+    print("- Click or drag mouse: Draw/Erase cells")
+    print("- Start button: Start/Pause simulation")
+    print("- Clear button: Clear grid")
+    print("- Random button: Generate random cells")
+    print("- Space: Quick start/pause")
+    print("- Up/Down arrow: Adjust speed")
+    print("- ESC: Exit game")
+    
+    try:
+        # 创建游戏实例
+        game = GameOfLifeGUI(width=40, height=30, cell_size=20)
+        
+        # 运行游戏
+        game.run()
+    except Exception as e:
+        print(f"游戏发生错误: {str(e)}")
+        pygame.quit()
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
